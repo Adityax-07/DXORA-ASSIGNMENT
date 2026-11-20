@@ -1,10 +1,25 @@
 # Multi-Platform Poster (FastAPI)
 
 `POST /posting` takes one short message (max 200 chars, exactly one link) and publishes it to
-five platforms in parallel: **Telegram, Discord, Mastodon, Bluesky, DEV.to**. Each platform is
-independent; one failing never blocks the others.
+five platforms at once: **Telegram, Discord, Mastodon, Bluesky, DEV.to**. Each platform is
+independent, so one failing never blocks the others.
 
-## Setup
+## How it works
+
+```
+POST /posting ─► validate message ─► post to all 5 in parallel ─► check each post is public ─► JSON report
+                 (schemas.py)         (services/posting.py)        (anonymous GET of the URL)
+```
+
+1. **Validate:** the message must be 1–200 chars with exactly one valid http(s) link, else HTTP 422.
+2. **Fan out:** every platform runs concurrently (`asyncio.gather`). A platform without credentials,
+   or one that errors or times out, is reported as `failed` with the reason. The rest still post.
+3. **Verify:** for each successful post, an anonymous GET of the posted URL sets `publicly_accessible`.
+   It is `null` when there is no public URL (Discord webhooks) or the URL can't be reached from the
+   server's network.
+4. **Report:** one result per platform: status, posted URL, public flag, date, time and error.
+
+## Run
 
 ```bash
 python -m venv .venv
@@ -14,7 +29,7 @@ cp .env.example .env            # fill in credentials (never commit .env)
 uvicorn app.main:app --host 0.0.0.0 --port 4000
 ```
 
-Docs: http://localhost:4000/docs
+Docs: http://localhost:4000/docs  |  Tests: `pytest`
 
 ## Credentials
 
@@ -26,44 +41,33 @@ Docs: http://localhost:4000/docs
 | Bluesky | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD` | Settings > App Passwords |
 | DEV.to | `DEVTO_API_KEY` | Settings > Extensions > Generate API key |
 
-A platform with missing credentials is reported as `failed` ("missing credentials").
-
-## Sample request
+## Example
 
 ```bash
 curl -X POST http://localhost:4000/posting -H "Content-Type: application/json" \
   -d '{"message": "Try our new product today https://example.com/signup"}'
 ```
 
-## Sample response
-
 ```json
 {
   "message": "Try our new product today https://example.com/signup",
   "results": [
     {"platform": "mastodon", "status": "success", "posted_url": "https://mastodon.social/@me/1234",
-     "publicly_accessible": true, "date": "2026-11-15", "time": "21:04:11 +0530", "error": null},
+     "publicly_accessible": true, "date": "2026-11-20", "time": "00:39:14 +0530", "error": null},
     {"platform": "discord", "status": "success", "posted_url": null,
-     "publicly_accessible": null, "date": "2026-11-15", "time": "21:04:11 +0530", "error": null},
+     "publicly_accessible": null, "date": "2026-11-20", "time": "00:39:14 +0530", "error": null},
     {"platform": "devto", "status": "failed", "posted_url": null, "publicly_accessible": null,
-     "date": "2026-11-15", "time": "21:04:11 +0530", "error": "missing credentials in environment"}
+     "date": "2026-11-20", "time": "00:39:14 +0530", "error": "missing credentials in environment"}
   ]
 }
 ```
 
-Invalid input returns HTTP 422 with a message such as `message must contain exactly one link (found 0)`.
+(Trimmed to three platforms; the real response has all five.)
 
-> Replace the sample above with real output / screenshots from your own run before submitting.
+## Project layout
 
-## Design
+- `app/main.py`, `app/schemas.py`: FastAPI app, request validation and response models
+- `app/platforms/`: `BasePlatform` (shared HTTP error handling and public check) plus one small module per platform
+- `app/services/posting.py`: concurrent fan-out with per-platform error isolation
 
-- `app/schemas.py` – request validation (length, exactly one valid http(s) URL) and response models
-- `app/platforms/` – `BasePlatform` + one module per platform
-- `app/services/posting.py` – concurrent fan-out with per-platform error isolation
-- `publicly_accessible` is determined by an anonymous GET of the posted URL (`null` when the platform exposes no public URL, e.g. Discord webhooks, or the URL can't be reached from the server's network)
-
-## Tests
-
-```bash
-pytest
-```
+To add a platform, subclass `BasePlatform` (`is_configured()` and `post()`), then register it in `app/platforms/__init__.py`.
