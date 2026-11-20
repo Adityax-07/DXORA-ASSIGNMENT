@@ -31,11 +31,15 @@ class BasePlatform(ABC):
             raise PlatformError(f"HTTP {resp.status_code}: {resp.text[:300]}")
 
     async def check_public(self, url: Optional[str]) -> Optional[bool]:
-        """Anonymous GET of the posted URL; None if there is no URL to check."""
+        """Anonymous GET of the posted URL; None if there is no URL or it could not be reached.
+
+        A network/TLS failure says nothing about the post itself (e.g. t.me is blocked on some
+        networks), so it is reported as unknown rather than as not public.
+        """
         if not url:
             return None
         try:
             r = await self.client.get(url, follow_redirects=True)
             return r.status_code == 200
         except httpx.HTTPError:
-            return False
+            return None

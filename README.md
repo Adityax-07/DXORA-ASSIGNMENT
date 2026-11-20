@@ -60,7 +60,7 @@ Invalid input returns HTTP 422 with a message such as `message must contain exac
 - `app/schemas.py` – request validation (length, exactly one valid http(s) URL) and response models
 - `app/platforms/` – `BasePlatform` + one module per platform
 - `app/services/posting.py` – concurrent fan-out with per-platform error isolation
-- `publicly_accessible` is determined by an anonymous GET of the posted URL (`null` when the platform exposes no public URL, e.g. Discord webhooks)
+- `publicly_accessible` is determined by an anonymous GET of the posted URL (`null` when the platform exposes no public URL, e.g. Discord webhooks, or the URL can't be reached from the server's network)
 
 ## Tests
 
